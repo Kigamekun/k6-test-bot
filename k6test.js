@@ -23,6 +23,7 @@ const fileBins = {};
 const fileNames = {};
 items.forEach((item) => {
   // open() masih di init stage → OK
+  console.log(`Loading file: ${item.filePath}`);
   fileBins[item.filePath] = open(item.filePath, 'b');
   fileNames[item.filePath] = item.filePath.split('/').pop();
 });

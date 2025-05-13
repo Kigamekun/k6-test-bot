@@ -1,4 +1,4 @@
-filename,userid,nrp,kd_ktm,kesatuan,subsatker,pns_atau_militer
+filePath,userid,nrp,kd_ktm,kesatuan,subsatker,pns_atau_militer
 /home/kreasi/k6-test/k6-test-bot/TESTER/us1/test.xlsx,492316,9999990001,99,999999,0001,PNS
 /home/kreasi/k6-test/k6-test-bot/TESTER/us2/test.xlsx,492317,9999990002,99,999999,0002,PNS
 /home/kreasi/k6-test/k6-test-bot/TESTER/us3/test.xlsx,492318,9999990003,99,999999,0003,PNS
