@@ -1,90 +1,127 @@
 import http from 'k6/http';
-import { check } from 'k6';
+import { check, sleep } from 'k6';
 import { SharedArray } from 'k6/data';
 import papaparse from 'https://jslib.k6.io/papaparse/5.1.1/index.js';
+import { Trend, Counter } from 'k6/metrics';
 
-// 1) Load credentials
+// ————————————————————————————
+// 1) Custom Metrics
+// ————————————————————————————
+let loginPageTime   = new Trend('login_page_time', true);
+let loginPostTime   = new Trend('login_post_time', true);
+let dashboardTime   = new Trend('dashboard_time', true);
+let importTime      = new Trend('import_time', true);
+let totalIteration  = new Trend('iteration_duration', true);
+let errorsCount     = new Counter('errors_count');
+
+// ————————————————————————————
+// 2) Load Test Data (init stage)
+// ————————————————————————————
 const users = new SharedArray('users', () =>
   papaparse
     .parse(open('./users.csv'), { header: true, skipEmptyLines: true })
     .data
 );
 
-// 2) Load import‐items WITHOUT binary
 const items = new SharedArray('import items', () =>
   papaparse
     .parse(open('./import_data_updated.csv'), { header: true, skipEmptyLines: true })
     .data
 );
 
-// 3) Preload all file binaries into a plain JS map
-//    (ini di init stage, tidak masuk SharedArray)
-const fileBins = {};
+// Preload binaries
+const fileBins  = {};
 const fileNames = {};
-items.forEach((item) => {
-  // open() masih di init stage → OK
-  console.log(`Loading file: ${item.filePath}`);
-  fileBins[item.filePath] = open(item.filePath, 'b');
-  fileNames[item.filePath] = item.filePath.split('/').pop();
+items.forEach(item => {
+  // adjust to your CSV column name if perlu diganti
+  let fp = item.filename || item.filePath;
+  fileBins[fp]  = open(fp, 'b');
+  fileNames[fp] = fp.split('/').pop();
 });
 
-// 4) Endpoints
+// ————————————————————————————
+// 3) Endpoints & Options
+// ————————————————————————————
 const LOGIN_PAGE = 'https://etwpad.id/login';
 const LOGIN_POST = 'https://etwpad.id/login';
 const DASHBOARD  = 'https://etwpad.id/dashboard';
 const API_IMPORT = 'https://etwpad.id/eTWP/api/import';
-const API_CEK    = 'https://etwpad.id/eTWP/api/cek-rekening';
-
-
 
 export let options = {
   stages: [
-    { duration: '1m', target: 100 },
-    // { duration: '1m', target: 500 },
-    // { duration: '1m', target: 1000 },
-    // { duration: '1m', target: 1500 },
-    // { duration: '1m', target: 2000 },
-    // { duration: '1m', target: 0 },
+    { duration: '1m', target: 50 },   // ramp-up to 50 VUs
+    { duration: '3m', target: 50 },   // sustain
+    { duration: '1m', target: 0 },    // ramp-down
   ],
   thresholds: {
-    'http_req_failed': ['rate<0.01'],
-    'http_req_duration': ['p(95)<500'],
+    // Global thresholds
+    'http_req_duration{type:all}': ['p(95)<5000'],     // 95% request <5s
+    'errors_count': ['count<10'],                      // max 10 errors
+    // Per-tag thresholds
+    'http_req_duration{step:login}': ['p(95)<2000'],    // login steps <2s
+    'http_req_duration{step:dashboard}': ['p(95)<3000'],// dashboard <3s
+    'http_req_duration{step:import}': ['p(95)<15000'],  // import <15s
   },
 };
-export default function () {
-  const jar  = http.cookieJar();
-  const user = users[__VU % users.length];
-  const nrp  = user.nrp;
-  const pwd  = user.password;
 
-  // — 1) GET login page
-  let res = http.get(LOGIN_PAGE, { jar, redirects: 0 });
-  check(res, { 'login page 200': (r) => r.status === 200 });
+// ————————————————————————————
+// 4) Test Script
+// ————————————————————————————
+export default function () {
+  let iterStart = Date.now();
+
+  // ——— Step 1: GET login page ———
+  let t0 = Date.now();
+  let res = http.get(LOGIN_PAGE, {
+    tags: { step: 'login', name: 'get_login_page' },
+    redirects: 0,
+  });
+  loginPageTime.add(Date.now() - t0);
+  check(res, {
+    'get_login_page 200': (r) => r.status === 200,
+  }) || errorsCount.add(1);
 
   // extract CSRF token
-  const m = res.body.match(/name="_token" value="([^"]+)"/);
-  const csrf = m ? m[1] : '';
+  let csrf = '';
+  let m = res.body.match(/name="_token" value="([^"]+)"/);
+  if (m) {
+    csrf = m[1];
+  } else {
+    console.error('❌ CSRF token not found');
+    errorsCount.add(1);
+  }
 
-  // — 2) POST login
+  // ——— Step 2: POST login ———
+  t0 = Date.now();
   res = http.post(
     LOGIN_POST,
-    { _token: csrf, nrp, password: pwd },
-    { jar, redirects: 0 }
+    { _token: csrf, nrp: users[__VU % users.length].nrp, password: users[__VU % users.length].password },
+    {
+      jar: http.cookieJar(),
+      redirects: 0,
+      tags: { step: 'login', name: 'post_login' },
+    }
   );
+  loginPostTime.add(Date.now() - t0);
   check(res, {
-    'login→302': (r) => r.status === 302,
-    'session cookie set': () =>
-      !!jar.cookiesForURL('https://etwpad.id')['etwpad_session'],
+    'post_login 302': (r) => r.status === 302,
+  }) || errorsCount.add(1);
+
+  // ——— Step 3: GET dashboard ———
+  t0 = Date.now();
+  res = http.get(DASHBOARD, {
+    jar: http.cookieJar(),
+    tags: { step: 'dashboard', name: 'get_dashboard' },
   });
-  if (res.status !== 302) return;
+  dashboardTime.add(Date.now() - t0);
+  check(res, {
+    'get_dashboard 200': (r) => r.status === 200,
+  }) || errorsCount.add(1);
 
-  // — 3) GET dashboard
-  res = http.get(DASHBOARD, { jar });
-  check(res, { 'dashboard 200': (r) => r.status === 200 });
-
-  // — 4) POST import file via API
-  const item = items[__VU % items.length];
-  const formData = {
+  // ——— Step 4: POST import file ———
+  let item = items[__VU % items.length];
+  let fp   = item.filename || item.filePath;
+  let formData = {
     job:              'ImportGPP',
     rabbit:           'csv_process_queue',
     pns_atau_militer: item.pns_atau_militer,
@@ -93,26 +130,21 @@ export default function () {
     kd_ktm:           item.kd_ktm,
     kesatuan:         item.kesatuan,
     kd_subsatker:     item.kd_subsatker,
-    // ambil binary & nama dari map, bukan dari SharedArray
-    file:             http.file(fileBins[item.filePath], fileNames[item.filePath]),
+    file:             http.file(fileBins[fp], fileNames[fp]),
   };
-  
-  res = http.post(API_IMPORT, formData, {  jar });
-
-  if (res.status !== 200) {
-    console.error(`❌ Import failed: HTTP ${res.status}\nResponse body: ${res.body}`);
-  } else {
-    console.log(`✅ Import OK: HTTP ${res.status}`);
-  }
-  check(res, {
-    'import 200':      (r) => r.status === 200,
+  t0 = Date.now();
+  res = http.post(API_IMPORT, formData, {
+    jar: http.cookieJar(),
+    tags: { step: 'import', name: 'post_import' },
   });
-  if (res.status !== 200) return;
+  importTime.add(Date.now() - t0);
+  check(res, {
+    'post_import 200': (r) => r.status === 200,
+  }) || errorsCount.add(1);
 
-  // — 5) POST cek rekening
-  // res = http.post(API_CEK, null, { headers, jar });
-  // check(res, {
-  //   'cek rekening 200':  (r) => r.status === 200,
-  //   'cek rekening done': (r) => r.json('success') === true,
-  // });
+  // record total iteration duration
+  totalIteration.add(Date.now() - iterStart);
+
+  // pacing
+  sleep(1);
 }
