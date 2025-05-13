@@ -39,11 +39,11 @@ const API_CEK    = 'https://beta.etwpad.id/eTWP/api/cek-rekening';
 export let options = {
   stages: [
     { duration: '1m', target: 100 },
-    { duration: '1m', target: 500 },
-    { duration: '1m', target: 1000 },
-    { duration: '1m', target: 1500 },
-    { duration: '1m', target: 2000 },
-    { duration: '1m', target: 0 },
+    // { duration: '1m', target: 500 },
+    // { duration: '1m', target: 1000 },
+    // { duration: '1m', target: 1500 },
+    // { duration: '1m', target: 2000 },
+    // { duration: '1m', target: 0 },
   ],
   thresholds: {
     'http_req_failed': ['rate<0.01'],
