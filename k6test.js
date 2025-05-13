@@ -28,11 +28,11 @@ items.forEach((item) => {
 });
 
 // 4) Endpoints
-const LOGIN_PAGE = 'https://beta.etwpad.id/login';
-const LOGIN_POST = 'https://beta.etwpad.id/login';
-const DASHBOARD  = 'https://beta.etwpad.id/dashboard';
-const API_IMPORT = 'https://beta.etwpad.id/eTWP/api/import';
-const API_CEK    = 'https://beta.etwpad.id/eTWP/api/cek-rekening';
+const LOGIN_PAGE = 'https://etwpad.id/login';
+const LOGIN_POST = 'https://etwpad.id/login';
+const DASHBOARD  = 'https://etwpad.id/dashboard';
+const API_IMPORT = 'https://etwpad.id/eTWP/api/import';
+const API_CEK    = 'https://etwpad.id/eTWP/api/cek-rekening';
 
 
 
@@ -73,7 +73,7 @@ export default function () {
   check(res, {
     'login→302': (r) => r.status === 302,
     'session cookie set': () =>
-      !!jar.cookiesForURL('https://beta.etwpad.id')['etwpad_session'],
+      !!jar.cookiesForURL('https://etwpad.id')['etwpad_session'],
   });
   if (res.status !== 302) return;
 
